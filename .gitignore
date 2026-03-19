@@ -1,0 +1,17 @@
+node_modules/
+.next/
+
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+.env
+.env.local
+
+data/uploads/*
+data/outputs/*
+!data/uploads/.gitkeep
+!data/outputs/.gitkeep
+
+.vscode/
