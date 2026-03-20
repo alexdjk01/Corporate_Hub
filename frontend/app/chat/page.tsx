@@ -19,8 +19,13 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(false);
   const [conversationId, setConversationId] = useState<number | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -90,14 +95,14 @@ export default function ChatPage() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, loading]);
+  }, [messages, loading, transcribing]);
 
   useEffect(() => {
     autoResizeTextarea();
   }, [input]);
 
   const sendMessage = async () => {
-    if (!input.trim() || loading) return;
+    if (!input.trim() || loading || transcribing) return;
 
     const currentInput = input.trim();
 
@@ -191,6 +196,71 @@ export default function ChatPage() {
     setTimeout(() => textareaRef.current?.focus(), 0);
   };
 
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      chunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        const formData = new FormData();
+        formData.append("file", blob, "recording.webm");
+
+        setTranscribing(true);
+
+        try {
+          const res = await fetch("http://localhost:8000/voice/stt", {
+            method: "POST",
+            body: formData,
+          });
+
+          const data = await res.json();
+          const transcript = (data.transcript || "").trim();
+
+          if (transcript) {
+            setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
+          }
+        } catch {
+          setInput((prev) =>
+            prev
+              ? `${prev} [Transcription failed]`
+              : "[Transcription failed]"
+          );
+        } finally {
+          setTranscribing(false);
+          stream.getTracks().forEach((track) => track.stop());
+        }
+      };
+
+      mediaRecorder.start();
+      setRecording(true);
+    } catch {
+      alert("Could not access microphone.");
+    }
+  };
+
+  const stopRecording = () => {
+    mediaRecorderRef.current?.stop();
+    setRecording(false);
+  };
+
+  const handleMicClick = () => {
+    if (recording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -275,10 +345,27 @@ export default function ChatPage() {
             </div>
           )}
 
+          {transcribing && (
+            <div className="w-fit rounded-2xl bg-neutral-800 px-4 py-3 text-sm text-neutral-300">
+              Transcribing audio...
+            </div>
+          )}
+
           <div ref={messagesEndRef} />
         </div>
 
         <div className="flex items-end gap-2 rounded-2xl border border-neutral-800 bg-neutral-950 p-3">
+          <button
+            onClick={handleMicClick}
+            disabled={loading || transcribing}
+            className={`rounded-xl px-4 py-3 font-medium text-white disabled:opacity-50 ${
+              recording ? "bg-red-600" : "bg-neutral-800"
+            }`}
+            title={recording ? "Stop recording" : "Start recording"}
+          >
+            {recording ? "Stop" : "Mic"}
+          </button>
+
           <textarea
             ref={textareaRef}
             rows={1}
@@ -290,7 +377,7 @@ export default function ChatPage() {
           />
           <button
             onClick={sendMessage}
-            disabled={loading || !input.trim()}
+            disabled={loading || transcribing || !input.trim()}
             className="rounded-xl bg-blue-600 px-5 py-3 font-medium text-white disabled:opacity-50"
           >
             {loading ? "..." : "Send"}

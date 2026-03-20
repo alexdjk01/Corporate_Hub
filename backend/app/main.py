@@ -5,6 +5,7 @@ import requests
 from app.core.db import Base, engine
 from app.api.routes.chat import router as chat_router
 from app.api.routes.conversations import router as conversations_router
+from app.api.routes.voice import router as voice_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -41,3 +42,4 @@ def services_health():
 
 app.include_router(chat_router)
 app.include_router(conversations_router)
+app.include_router(voice_router)
