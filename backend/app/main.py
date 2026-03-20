@@ -86,7 +86,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     conversation_id = req.conversation_id
 
     if conversation_id is None:
-        conv = Conversation(title="New Chat", summary=None)
+        conv = Conversation(title=None, summary=None)
         db.add(conv)
         db.commit()
         db.refresh(conv)
@@ -99,6 +99,12 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     )
     db.add(user_message)
     db.commit()
+
+    conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+    if conv and not conv.title:
+        clean_title = req.message.strip()
+        conv.title = clean_title[:60] if clean_title else f"Chat {conversation_id}"
+        db.commit()
 
     history = (
         db.query(Message)
@@ -198,3 +204,95 @@ def get_conversation_messages(conversation_id: int, db: Session = Depends(get_db
         }
         for msg in messages
     ]
+
+@app.get("/conversations")
+def get_conversations(db: Session = Depends(get_db)):
+    conversations = (
+        db.query(Conversation)
+        .order_by(Conversation.updated_at.desc(), Conversation.id.desc())
+        .all()
+    )
+
+    return [
+        {
+            "id": conv.id,
+            "title": conv.title or f"Chat {conv.id}",
+            "created_at": str(conv.created_at),
+            "updated_at": str(conv.updated_at),
+        }
+        for conv in conversations
+    ]
+
+
+@app.get("/conversations/{conversation_id}")
+def get_conversation(conversation_id: int, db: Session = Depends(get_db)):
+    conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+
+    if not conv:
+        return {"error": "Conversation not found"}
+
+    messages = (
+        db.query(Message)
+        .filter(Message.conversation_id == conversation_id)
+        .order_by(Message.id.asc())
+        .all()
+    )
+
+    return {
+        "id": conv.id,
+        "title": conv.title or f"Chat {conv.id}",
+        "messages": [
+            {
+                "id": msg.id,
+                "role": msg.role,
+                "content": msg.content,
+                "created_at": str(msg.created_at),
+            }
+            for msg in messages
+        ],
+    }
+
+@app.get("/conversations/latest")
+def get_latest_conversation(db: Session = Depends(get_db)):
+    conv = (
+        db.query(Conversation)
+        .order_by(Conversation.updated_at.desc(), Conversation.id.desc())
+        .first()
+    )
+
+    if not conv:
+        return None
+
+    messages = (
+        db.query(Message)
+        .filter(Message.conversation_id == conv.id)
+        .order_by(Message.id.asc())
+        .all()
+    )
+
+    return {
+        "id": conv.id,
+        "title": conv.title or f"Chat {conv.id}",
+        "messages": [
+            {
+                "id": msg.id,
+                "role": msg.role,
+                "content": msg.content,
+                "created_at": str(msg.created_at),
+            }
+            for msg in messages
+        ],
+    }
+
+
+@app.delete("/conversations/{conversation_id}")
+def delete_conversation(conversation_id: int, db: Session = Depends(get_db)):
+    conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+
+    if not conv:
+        return {"success": False, "message": "Conversation not found"}
+
+    db.delete(conv)
+    db.commit()
+
+    return {"success": True}
