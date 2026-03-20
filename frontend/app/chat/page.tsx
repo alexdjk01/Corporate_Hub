@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 
 type Message = {
@@ -19,6 +19,21 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(false);
   const [conversationId, setConversationId] = useState<number | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const autoResizeTextarea = () => {
+    if (!textareaRef.current) return;
+    textareaRef.current.style.height = "auto";
+    textareaRef.current.style.height = `${Math.min(
+      textareaRef.current.scrollHeight,
+      160
+    )}px`;
+  };
 
   const loadConversations = async () => {
     try {
@@ -73,10 +88,18 @@ export default function ChatPage() {
     init();
   }, []);
 
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, loading]);
+
+  useEffect(() => {
+    autoResizeTextarea();
+  }, [input]);
+
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
 
-    const currentInput = input;
+    const currentInput = input.trim();
 
     setMessages((prev) => [...prev, { role: "user", content: currentInput }]);
     setInput("");
@@ -94,17 +117,37 @@ export default function ChatPage() {
         }),
       });
 
-      if (!res.ok) {
+      if (!res.ok || !res.body) {
         throw new Error("Backend error");
       }
 
-      const data = await res.json();
+      const newConversationId = res.headers.get("X-Conversation-Id");
+      if (newConversationId) {
+        setConversationId(Number(newConversationId));
+      }
 
-      setConversationId(data.conversation_id);
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: data.response },
-      ]);
+      setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let assistantText = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        assistantText += chunk;
+
+        setMessages((prev) => {
+          const updated = [...prev];
+          updated[updated.length - 1] = {
+            role: "assistant",
+            content: assistantText,
+          };
+          return updated;
+        });
+      }
 
       await loadConversations();
     } catch {
@@ -126,14 +169,16 @@ export default function ChatPage() {
         method: "DELETE",
       });
 
-      if (conversationId === id) {
+      const wasCurrent = conversationId === id;
+
+      if (wasCurrent) {
         setConversationId(null);
         setMessages([]);
       }
 
       await loadConversations();
 
-      if (conversationId === id) {
+      if (wasCurrent) {
         await loadLatestConversation();
       }
     } catch {}
@@ -143,22 +188,24 @@ export default function ChatPage() {
     setMessages([]);
     setConversationId(null);
     setInput("");
+    setTimeout(() => textareaRef.current?.focus(), 0);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
       sendMessage();
     }
   };
 
   return (
     <div className="flex h-[80vh] gap-4">
-      <div className="w-72 rounded-xl border border-neutral-800 bg-neutral-950 p-4">
+      <div className="w-72 rounded-2xl border border-neutral-800 bg-neutral-950 p-4">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">Chats</h2>
           <button
             onClick={newChat}
-            className="rounded-lg border border-neutral-700 px-3 py-1 text-sm"
+            className="rounded-lg border border-neutral-700 px-3 py-1 text-sm hover:bg-neutral-800"
           >
             New
           </button>
@@ -168,15 +215,14 @@ export default function ChatPage() {
           {conversations.map((conv) => (
             <div
               key={conv.id}
-              className={`flex items-center gap-2 rounded-lg px-2 py-2 ${
-                conversationId === conv.id
-                  ? "bg-neutral-800"
-                  : "bg-neutral-900"
+              className={`flex items-center gap-2 rounded-xl px-2 py-2 ${
+                conversationId === conv.id ? "bg-neutral-800" : "bg-neutral-900"
               }`}
             >
               <button
                 onClick={() => loadConversation(conv.id)}
-                className="flex-1 text-left text-sm text-neutral-200"
+                className="flex-1 truncate text-left text-sm text-neutral-200"
+                title={conv.title}
               >
                 {conv.title}
               </button>
@@ -197,7 +243,7 @@ export default function ChatPage() {
           <h1 className="text-2xl font-semibold">Chat</h1>
         </div>
 
-        <div className="mb-4 flex-1 space-y-3 overflow-y-auto rounded-xl border border-neutral-800 bg-neutral-950 p-4">
+        <div className="mb-4 flex-1 space-y-3 overflow-y-auto rounded-2xl border border-neutral-800 bg-neutral-950 p-4">
           {messages.length === 0 && (
             <p className="text-sm text-neutral-400">
               Start a conversation with your local AI model.
@@ -207,14 +253,14 @@ export default function ChatPage() {
           {messages.map((msg, i) => (
             <div
               key={i}
-              className={`max-w-[80%] rounded-xl px-4 py-3 text-sm leading-6 ${
+              className={`w-fit max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm ${
                 msg.role === "user"
                   ? "ml-auto bg-blue-600 text-white"
                   : "bg-neutral-800 text-neutral-100"
               }`}
             >
               {msg.role === "user" ? (
-                msg.content
+                <div className="whitespace-pre-wrap">{msg.content}</div>
               ) : (
                 <div className="prose prose-invert prose-sm max-w-none">
                   <ReactMarkdown>{msg.content}</ReactMarkdown>
@@ -223,25 +269,31 @@ export default function ChatPage() {
             </div>
           ))}
 
-          {loading && (
-            <p className="text-sm text-neutral-400">AI is typing...</p>
+          {loading && messages[messages.length - 1]?.role !== "assistant" && (
+            <div className="w-fit rounded-2xl bg-neutral-800 px-4 py-3 text-sm text-neutral-300">
+              AI is typing...
+            </div>
           )}
+
+          <div ref={messagesEndRef} />
         </div>
 
-        <div className="flex gap-2">
-          <input
-            className="flex-1 rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-white outline-none placeholder:text-neutral-500"
+        <div className="flex items-end gap-2 rounded-2xl border border-neutral-800 bg-neutral-950 p-3">
+          <textarea
+            ref={textareaRef}
+            rows={1}
+            className="max-h-40 flex-1 resize-none overflow-y-auto rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-white outline-none placeholder:text-neutral-500"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Type a message..."
+            placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
           />
           <button
             onClick={sendMessage}
-            disabled={loading}
+            disabled={loading || !input.trim()}
             className="rounded-xl bg-blue-600 px-5 py-3 font-medium text-white disabled:opacity-50"
           >
-            {loading ? "Sending..." : "Send"}
+            {loading ? "..." : "Send"}
           </button>
         </div>
       </div>
