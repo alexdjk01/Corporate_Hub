@@ -1,8 +1,10 @@
-from fastapi import APIRouter, UploadFile, File
+from fastapi import APIRouter, UploadFile, File, Form
+from fastapi.responses import FileResponse
 import os
 import uuid
 
 from app.services.stt_service import transcribe_audio_file
+from app.services.tts_service import synthesize_speech
 
 router = APIRouter()
 
@@ -24,3 +26,12 @@ async def speech_to_text(file: UploadFile = File(...)):
     finally:
         if os.path.exists(file_path):
             os.remove(file_path)
+
+
+@router.post("/voice/tts")
+async def text_to_speech(
+    text: str = Form(...),
+    voice: str = Form("af_sarah"),
+):
+    audio_path = synthesize_speech(text=text, voice=voice)
+    return FileResponse(audio_path, media_type="audio/wav", filename="speech.wav")

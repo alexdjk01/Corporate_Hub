@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { Mic, Square, Volume2 } from "lucide-react";
 
 type Message = {
   role: "user" | "assistant";
@@ -21,11 +22,13 @@ export default function ChatPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
+  const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -168,6 +171,40 @@ export default function ChatPage() {
     }
   };
 
+  const playTts = async (text: string, index: number) => {
+    if (!text.trim()) return;
+
+    try {
+      setSpeakingIndex(index);
+
+      const formData = new FormData();
+      formData.append("text", text);
+      formData.append("voice", "af_sarah");
+
+      const res = await fetch("http://localhost:8000/voice/tts", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        throw new Error("TTS failed");
+      }
+
+      const blob = await res.blob();
+      const audioUrl = URL.createObjectURL(blob);
+
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = audioUrl;
+        audioRef.current.onended = () => setSpeakingIndex(null);
+        audioRef.current.play();
+      }
+    } catch {
+      setSpeakingIndex(null);
+      alert("Could not generate voice.");
+    }
+  };
+
   const deleteChat = async (id: number) => {
     try {
       await fetch(`http://localhost:8000/conversations/${id}`, {
@@ -231,9 +268,7 @@ export default function ChatPage() {
           }
         } catch {
           setInput((prev) =>
-            prev
-              ? `${prev} [Transcription failed]`
-              : "[Transcription failed]"
+            prev ? `${prev} [Transcription failed]` : "[Transcription failed]"
           );
         } finally {
           setTranscribing(false);
@@ -270,6 +305,8 @@ export default function ChatPage() {
 
   return (
     <div className="flex h-[80vh] gap-4">
+      <audio ref={audioRef} hidden />
+
       <div className="w-72 rounded-2xl border border-neutral-800 bg-neutral-950 p-4">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">Chats</h2>
@@ -332,8 +369,25 @@ export default function ChatPage() {
               {msg.role === "user" ? (
                 <div className="whitespace-pre-wrap">{msg.content}</div>
               ) : (
-                <div className="prose prose-invert prose-sm max-w-none">
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                <div>
+                  <div className="mb-2 flex items-center gap-2">
+                    <button
+                      onClick={() => playTts(msg.content, i)}
+                      disabled={speakingIndex === i}
+                      className="rounded-lg bg-neutral-700 p-2 text-neutral-200 hover:bg-neutral-600 disabled:opacity-50"
+                      title="Read aloud"
+                    >
+                      <Volume2 size={16} />
+                    </button>
+
+                    {speakingIndex === i && (
+                      <span className="text-xs text-neutral-400">Playing...</span>
+                    )}
+                  </div>
+
+                  <div className="prose prose-invert prose-sm max-w-none">
+                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  </div>
                 </div>
               )}
             </div>
@@ -355,17 +409,6 @@ export default function ChatPage() {
         </div>
 
         <div className="flex items-end gap-2 rounded-2xl border border-neutral-800 bg-neutral-950 p-3">
-          <button
-            onClick={handleMicClick}
-            disabled={loading || transcribing}
-            className={`rounded-xl px-4 py-3 font-medium text-white disabled:opacity-50 ${
-              recording ? "bg-red-600" : "bg-neutral-800"
-            }`}
-            title={recording ? "Stop recording" : "Start recording"}
-          >
-            {recording ? "Stop" : "Mic"}
-          </button>
-
           <textarea
             ref={textareaRef}
             rows={1}
@@ -375,10 +418,22 @@ export default function ChatPage() {
             onKeyDown={handleKeyDown}
             placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
           />
+
+          <button
+            onClick={handleMicClick}
+            disabled={loading || transcribing}
+            className={`flex items-center justify-center rounded-xl px-4 py-3 text-white disabled:opacity-50 ${
+              recording ? "bg-red-600" : "bg-neutral-800 hover:bg-neutral-700"
+            }`}
+            title={recording ? "Stop recording" : "Start recording"}
+          >
+            {recording ? <Square size={18} /> : <Mic size={18} />}
+          </button>
+
           <button
             onClick={sendMessage}
             disabled={loading || transcribing || !input.trim()}
-            className="rounded-xl bg-blue-600 px-5 py-3 font-medium text-white disabled:opacity-50"
+            className="rounded-xl bg-blue-600 px-5 py-3 font-medium text-white disabled:opacity-50 hover:bg-blue-500"
           >
             {loading ? "..." : "Send"}
           </button>
