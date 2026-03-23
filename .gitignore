@@ -9,7 +9,8 @@ venv/
 .env
 .env.local
 
-backend/app/generated_audio/*
+backend/app/generated_audio/
+backend/uploads/
 data/uploads/*
 data/outputs/*
 !data/uploads/.gitkeep

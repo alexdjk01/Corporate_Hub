@@ -2,7 +2,9 @@ import os
 import uuid
 import chromadb
 import requests
+import pymupdf
 
+from docling.document_converter import DocumentConverter
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from app.services.embedding_service import get_embedding, get_embeddings
 
@@ -13,8 +15,8 @@ client = chromadb.PersistentClient(path=CHROMA_PATH)
 collection = client.get_or_create_collection(name=COLLECTION_NAME)
 
 splitter = RecursiveCharacterTextSplitter(
-    chunk_size=800,
-    chunk_overlap=150,
+    chunk_size=1500,
+    chunk_overlap=250,
 )
 
 OLLAMA_CHAT_URL = "http://localhost:11434/api/chat"
@@ -26,8 +28,49 @@ def read_text_file(file_path: str) -> str:
         return f.read()
 
 
+def extract_pdf_text_docling(file_path: str) -> str:
+    converter = DocumentConverter()
+    result = converter.convert(file_path)
+    doc = result.document
+    return doc.export_to_markdown()
+
+
+def extract_pdf_text_pymupdf(file_path: str) -> str:
+    doc = pymupdf.open(file_path)
+    pages = []
+
+    for page in doc:
+        pages.append(page.get_text("text"))
+
+    doc.close()
+    return "\n".join(pages).strip()
+
+
+def extract_text_from_file(file_path: str) -> str:
+    lower = file_path.lower()
+
+    if lower.endswith(".txt"):
+        return read_text_file(file_path)
+
+    if lower.endswith(".pdf"):
+        try:
+            text = extract_pdf_text_docling(file_path)
+            if text and text.strip():
+                return text
+        except Exception:
+            pass
+
+        text = extract_pdf_text_pymupdf(file_path)
+        if text and text.strip():
+            return text
+
+        raise ValueError("Could not extract text from PDF")
+
+    raise ValueError("Unsupported file type")
+
+
 def index_document(file_path: str, original_name: str) -> dict:
-    text = read_text_file(file_path)
+    text = extract_text_from_file(file_path)
     chunks = splitter.split_text(text)
 
     if not chunks:
@@ -63,7 +106,7 @@ def index_document(file_path: str, original_name: str) -> dict:
     }
 
 
-def query_documents(question: str, top_k: int = 3) -> dict:
+def query_documents(question: str, top_k: int = 8) -> dict:
     query_embedding = get_embedding(question)
 
     results = collection.query(
@@ -73,6 +116,11 @@ def query_documents(question: str, top_k: int = 3) -> dict:
 
     documents = results.get("documents", [[]])[0]
     metadatas = results.get("metadatas", [[]])[0]
+
+    print("RAG QUESTION:", question)
+    print("RETRIEVED CHUNKS:", len(documents))
+    for i, doc in enumerate(documents):
+        print(f"\n--- CHUNK {i+1} ---\n{doc[:500]}\n")
 
     context_parts = []
     sources = []
@@ -91,9 +139,11 @@ def query_documents(question: str, top_k: int = 3) -> dict:
         {
             "role": "system",
             "content": (
-                "You answer questions using only the provided context. "
+                "You answer questions using the provided context. "
                 "Be concise and structured. "
-                "If the answer is not in the context, say you could not find it in the uploaded documents."
+                "If the question is broad, summarize the overall topic of the retrieved content. "
+                "If the exact answer is not explicit but the retrieved context is clearly relevant, answer based on it. "
+                "Only say you could not find it if the retrieved context is clearly unrelated."
             ),
         },
         {

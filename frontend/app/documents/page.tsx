@@ -47,7 +47,7 @@ export default function DocumentsPage() {
 
   const uploadFile = async () => {
     if (!file) {
-      alert("Please choose a .txt file first.");
+      alert("Please choose a .txt or .pdf file first.");
       return;
     }
 
@@ -126,10 +126,10 @@ export default function DocumentsPage() {
               </div>
               <div>
                 <p className="text-sm font-medium text-white">
-                  Choose a .txt file
+                  Choose a .txt or .pdf file
                 </p>
                 <p className="text-xs text-neutral-400">
-                  Only .txt is supported for now
+                  Only .txt and .pdf files are supported for now
                 </p>
               </div>
             </div>
@@ -140,7 +140,7 @@ export default function DocumentsPage() {
 
             <input
               type="file"
-              accept=".txt"
+              accept=".txt,.pdf"
               onChange={(e) => setFile(e.target.files?.[0] || null)}
               className="hidden"
             />

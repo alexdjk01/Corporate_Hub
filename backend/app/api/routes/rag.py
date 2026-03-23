@@ -11,15 +11,16 @@ from app.services.rag_service import (
 
 router = APIRouter()
 
-
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
 @router.post("/rag/upload")
 async def rag_upload(file: UploadFile = File(...)):
-    if not file.filename.lower().endswith(".txt"):
-        return {"error": "Only .txt files are supported for now"}
+    allowed = (".txt", ".pdf")
+
+    if not file.filename.lower().endswith(allowed):
+        return {"error": "Only .txt and .pdf files are supported for now"}
 
     saved_name = f"{uuid.uuid4()}_{file.filename}"
     file_path = os.path.join(UPLOAD_DIR, saved_name)
@@ -27,8 +28,11 @@ async def rag_upload(file: UploadFile = File(...)):
     with open(file_path, "wb") as buffer:
         buffer.write(await file.read())
 
-    result = index_document(file_path=file_path, original_name=file.filename)
-    return result
+    try:
+        result = index_document(file_path=file_path, original_name=file.filename)
+        return result
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @router.post("/rag/query")
