@@ -9,6 +9,7 @@ venv/
 .env
 .env.local
 
+generated_audio/*
 data/uploads/*
 data/outputs/*
 !data/uploads/.gitkeep
