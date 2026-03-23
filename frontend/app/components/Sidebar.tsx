@@ -9,6 +9,7 @@ const items = [
   { name: "Images", href: "/images" },
   { name: "Voice", href: "/voice" },
   { name: "Settings", href: "/settings" },
+  { name: "Documents", href: "/documents" },
 ];
 
 export default function Sidebar() {
