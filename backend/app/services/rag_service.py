@@ -1,4 +1,3 @@
-import os
 import uuid
 import chromadb
 import requests
@@ -31,17 +30,12 @@ def read_text_file(file_path: str) -> str:
 def extract_pdf_text_docling(file_path: str) -> str:
     converter = DocumentConverter()
     result = converter.convert(file_path)
-    doc = result.document
-    return doc.export_to_markdown()
+    return result.document.export_to_markdown()
 
 
 def extract_pdf_text_pymupdf(file_path: str) -> str:
     doc = pymupdf.open(file_path)
-    pages = []
-
-    for page in doc:
-        pages.append(page.get_text("text"))
-
+    pages = [page.get_text("text") for page in doc]
     doc.close()
     return "\n".join(pages).strip()
 
@@ -69,7 +63,7 @@ def extract_text_from_file(file_path: str) -> str:
     raise ValueError("Unsupported file type")
 
 
-def index_document(file_path: str, original_name: str) -> dict:
+def index_document(file_path: str, original_name: str, user_id: int) -> dict:
     text = extract_text_from_file(file_path)
     chunks = splitter.split_text(text)
 
@@ -90,6 +84,7 @@ def index_document(file_path: str, original_name: str) -> dict:
             "document_id": document_id,
             "file_name": original_name,
             "chunk_index": i,
+            "user_id": user_id,
         })
 
     collection.add(
@@ -106,21 +101,17 @@ def index_document(file_path: str, original_name: str) -> dict:
     }
 
 
-def query_documents(question: str, top_k: int = 8) -> dict:
+def query_documents(question: str, user_id: int, top_k: int = 8) -> dict:
     query_embedding = get_embedding(question)
 
     results = collection.query(
         query_embeddings=[query_embedding],
         n_results=top_k,
+        where={"user_id": user_id},
     )
 
     documents = results.get("documents", [[]])[0]
     metadatas = results.get("metadatas", [[]])[0]
-
-    print("RAG QUESTION:", question)
-    print("RETRIEVED CHUNKS:", len(documents))
-    for i, doc in enumerate(documents):
-        print(f"\n--- CHUNK {i+1} ---\n{doc[:500]}\n")
 
     context_parts = []
     sources = []
@@ -173,8 +164,8 @@ def query_documents(question: str, top_k: int = 8) -> dict:
     }
 
 
-def list_documents() -> list[dict]:
-    data = collection.get(include=["metadatas"])
+def list_documents(user_id: int) -> list[dict]:
+    data = collection.get(where={"user_id": user_id}, include=["metadatas"])
     seen = {}
 
     for meta in data.get("metadatas", []):
@@ -188,8 +179,8 @@ def list_documents() -> list[dict]:
     return list(seen.values())
 
 
-def delete_document(document_id: str) -> None:
-    data = collection.get(include=["metadatas"])
+def delete_document(document_id: str, user_id: int) -> None:
+    data = collection.get(where={"user_id": user_id}, include=["metadatas"])
     ids_to_delete = []
 
     for item_id, meta in zip(data.get("ids", []), data.get("metadatas", [])):

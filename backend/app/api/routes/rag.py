@@ -1,7 +1,9 @@
-from fastapi import APIRouter, UploadFile, File, Form
+from fastapi import APIRouter, UploadFile, File, Form, Depends
 import os
 import uuid
 
+from app.api.deps import get_current_user
+from app.models.user_models import User
 from app.services.rag_service import (
     index_document,
     query_documents,
@@ -16,7 +18,10 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
 @router.post("/rag/upload")
-async def rag_upload(file: UploadFile = File(...)):
+async def rag_upload(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
     allowed = (".txt", ".pdf")
 
     if not file.filename.lower().endswith(allowed):
@@ -29,23 +34,32 @@ async def rag_upload(file: UploadFile = File(...)):
         buffer.write(await file.read())
 
     try:
-        result = index_document(file_path=file_path, original_name=file.filename)
-        return result
+        return index_document(
+            file_path=file_path,
+            original_name=file.filename,
+            user_id=current_user.id,
+        )
     except Exception as e:
         return {"error": str(e)}
 
 
 @router.post("/rag/query")
-async def rag_query(question: str = Form(...)):
-    return query_documents(question)
+async def rag_query(
+    question: str = Form(...),
+    current_user: User = Depends(get_current_user),
+):
+    return query_documents(question, user_id=current_user.id)
 
 
 @router.get("/rag/documents")
-def rag_documents():
-    return list_documents()
+def rag_documents(current_user: User = Depends(get_current_user)):
+    return list_documents(user_id=current_user.id)
 
 
 @router.delete("/rag/documents/{document_id}")
-def rag_delete(document_id: str):
-    delete_document(document_id)
+def rag_delete(
+    document_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    delete_document(document_id, user_id=current_user.id)
     return {"success": True}

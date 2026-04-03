@@ -1,5 +1,5 @@
 import "./globals.css";
-import Sidebar from "./components/Sidebar";
+import AppShell from "./components/AppShell";
 
 export default function RootLayout({
   children,
@@ -8,9 +8,8 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="flex bg-neutral-950 text-white">
-        <Sidebar />
-        <main className="flex-1 p-8">{children}</main>
+      <body>
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );

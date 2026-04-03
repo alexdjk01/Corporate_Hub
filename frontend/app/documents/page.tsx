@@ -24,9 +24,25 @@ export default function DocumentsPage() {
   const [loadingUpload, setLoadingUpload] = useState(false);
   const [loadingQuery, setLoadingQuery] = useState(false);
 
+  const getAuthHeaders = (includeJson = false): HeadersInit => {
+    const token = localStorage.getItem("token") || "";
+    if (includeJson) {
+      return {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      };
+    }
+
+    return {
+      Authorization: `Bearer ${token}`,
+    };
+ };
+
   const loadDocuments = async () => {
     try {
-      const res = await fetch("http://localhost:8000/rag/documents");
+      const res = await fetch("http://localhost:8000/rag/documents", {
+        headers: getAuthHeaders(),
+      });
       const data = await res.json();
 
       if (Array.isArray(data)) {
@@ -59,6 +75,7 @@ export default function DocumentsPage() {
     try {
       const res = await fetch("http://localhost:8000/rag/upload", {
         method: "POST",
+        headers: getAuthHeaders(),
         body: formData,
       });
 
@@ -94,6 +111,7 @@ export default function DocumentsPage() {
     try {
       const res = await fetch("http://localhost:8000/rag/query", {
         method: "POST",
+        headers: getAuthHeaders(),
         body: formData,
       });
       const data = await res.json();
@@ -107,6 +125,7 @@ export default function DocumentsPage() {
   const deleteDocument = async (documentId: string) => {
     await fetch(`http://localhost:8000/rag/documents/${documentId}`, {
       method: "DELETE",
+      headers: getAuthHeaders(),
     });
     loadDocuments();
   };
@@ -129,7 +148,7 @@ export default function DocumentsPage() {
                   Choose a .txt or .pdf file
                 </p>
                 <p className="text-xs text-neutral-400">
-                  Only .txt and .pdf files are supported for now
+                  .txt and .pdf are supported for now
                 </p>
               </div>
             </div>

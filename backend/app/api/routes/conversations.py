@@ -1,24 +1,21 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.core.db import SessionLocal
+from app.api.deps import get_db, get_current_user
 from app.models.db_models import Conversation, Message
+from app.models.user_models import User
 
 router = APIRouter()
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
 @router.get("/conversations")
-def get_conversations(db: Session = Depends(get_db)):
+def get_conversations(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     conversations = (
         db.query(Conversation)
+        .filter(Conversation.user_id == current_user.id)
         .order_by(Conversation.updated_at.desc(), Conversation.id.desc())
         .all()
     )
@@ -35,9 +32,13 @@ def get_conversations(db: Session = Depends(get_db)):
 
 
 @router.get("/conversations/latest")
-def get_latest_conversation(db: Session = Depends(get_db)):
+def get_latest_conversation(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     conv = (
         db.query(Conversation)
+        .filter(Conversation.user_id == current_user.id)
         .order_by(Conversation.updated_at.desc(), Conversation.id.desc())
         .first()
     )
@@ -68,11 +69,22 @@ def get_latest_conversation(db: Session = Depends(get_db)):
 
 
 @router.get("/conversations/{conversation_id}")
-def get_conversation(conversation_id: int, db: Session = Depends(get_db)):
-    conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+def get_conversation(
+    conversation_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    conv = (
+        db.query(Conversation)
+        .filter(
+            Conversation.id == conversation_id,
+            Conversation.user_id == current_user.id,
+        )
+        .first()
+    )
 
     if not conv:
-        return {"error": "Conversation not found"}
+        raise HTTPException(status_code=404, detail="Conversation not found")
 
     messages = (
         db.query(Message)
@@ -97,8 +109,19 @@ def get_conversation(conversation_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/conversations/{conversation_id}")
-def delete_conversation(conversation_id: int, db: Session = Depends(get_db)):
-    conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+def delete_conversation(
+    conversation_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    conv = (
+        db.query(Conversation)
+        .filter(
+            Conversation.id == conversation_id,
+            Conversation.user_id == current_user.id,
+        )
+        .first()
+    )
 
     if not conv:
         return {"success": False, "message": "Conversation not found"}

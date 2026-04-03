@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 import json
 import requests
 
-from app.core.db import SessionLocal
+from app.api.deps import get_db, get_current_user
 from app.models.db_models import Conversation, Message
+from app.models.user_models import User
 from app.schemas.chat import ChatRequest
 
 router = APIRouter()
@@ -14,24 +15,31 @@ OLLAMA_URL = "http://localhost:11434/api/chat"
 OLLAMA_MODEL = "gemma3:4b"
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
 @router.post("/chat")
-def chat(req: ChatRequest, db: Session = Depends(get_db)):
+def chat(
+    req: ChatRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     conversation_id = req.conversation_id
 
     if conversation_id is None:
-        conv = Conversation(title=None, summary=None)
+        conv = Conversation(title=None, summary=None, user_id=current_user.id)
         db.add(conv)
         db.commit()
         db.refresh(conv)
         conversation_id = conv.id
+    else:
+        conv = (
+            db.query(Conversation)
+            .filter(
+                Conversation.id == conversation_id,
+                Conversation.user_id == current_user.id,
+            )
+            .first()
+        )
+        if not conv:
+            raise HTTPException(status_code=404, detail="Conversation not found")
 
     user_message = Message(
         conversation_id=conversation_id,
@@ -41,7 +49,14 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     db.add(user_message)
     db.commit()
 
-    conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+    conv = (
+        db.query(Conversation)
+        .filter(
+            Conversation.id == conversation_id,
+            Conversation.user_id == current_user.id,
+        )
+        .first()
+    )
     if conv and not conv.title:
         clean_title = req.message.strip()
         conv.title = clean_title[:60] if clean_title else f"Chat {conversation_id}"
@@ -49,7 +64,11 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
 
     history = (
         db.query(Message)
-        .filter(Message.conversation_id == conversation_id)
+        .join(Conversation, Conversation.id == Message.conversation_id)
+        .filter(
+            Message.conversation_id == conversation_id,
+            Conversation.user_id == current_user.id,
+        )
         .order_by(Message.id.asc())
         .all()
     )
@@ -86,9 +105,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                     "model": OLLAMA_MODEL,
                     "messages": ollama_messages,
                     "stream": True,
-                    "options": {
-                        "temperature": 0.2
-                    },
+                    "options": {"temperature": 0.2},
                 },
                 stream=True,
                 timeout=120,

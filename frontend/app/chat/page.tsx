@@ -30,6 +30,20 @@ export default function ChatPage() {
   const chunksRef = useRef<Blob[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  const getAuthHeaders = (includeJson = false): HeadersInit => {
+    const token = localStorage.getItem("token") || "";
+    if (includeJson) {
+      return {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      };
+    }
+
+    return {
+      Authorization: `Bearer ${token}`,
+    };
+  };
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
@@ -45,9 +59,17 @@ export default function ChatPage() {
 
   const loadConversations = async () => {
     try {
-      const res = await fetch("http://localhost:8000/conversations");
+      const res = await fetch("http://localhost:8000/conversations", {
+        headers: getAuthHeaders(),
+      });
+
+      if (!res.ok) {
+        setConversations([]);
+        return;
+      }
+
       const data = await res.json();
-      setConversations(data);
+      setConversations(Array.isArray(data) ? data : []);
     } catch {
       setConversations([]);
     }
@@ -55,7 +77,12 @@ export default function ChatPage() {
 
   const loadConversation = async (id: number) => {
     try {
-      const res = await fetch(`http://localhost:8000/conversations/${id}`);
+      const res = await fetch(`http://localhost:8000/conversations/${id}`, {
+        headers: getAuthHeaders(),
+      });
+
+      if (!res.ok) return;
+
       const data = await res.json();
 
       if (data.messages) {
@@ -72,7 +99,12 @@ export default function ChatPage() {
 
   const loadLatestConversation = async () => {
     try {
-      const res = await fetch("http://localhost:8000/conversations/latest");
+      const res = await fetch("http://localhost:8000/conversations/latest", {
+        headers: getAuthHeaders(),
+      });
+
+      if (!res.ok) return;
+
       const data = await res.json();
 
       if (data && data.id && data.messages) {
@@ -116,9 +148,7 @@ export default function ChatPage() {
     try {
       const res = await fetch("http://localhost:8000/chat", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: getAuthHeaders(true),
         body: JSON.stringify({
           message: currentInput,
           conversation_id: conversationId,
@@ -183,6 +213,7 @@ export default function ChatPage() {
 
       const res = await fetch("http://localhost:8000/voice/tts", {
         method: "POST",
+        headers: getAuthHeaders(),
         body: formData,
       });
 
@@ -209,6 +240,7 @@ export default function ChatPage() {
     try {
       await fetch(`http://localhost:8000/conversations/${id}`, {
         method: "DELETE",
+        headers: getAuthHeaders(),
       });
 
       const wasCurrent = conversationId === id;
@@ -257,6 +289,7 @@ export default function ChatPage() {
         try {
           const res = await fetch("http://localhost:8000/voice/stt", {
             method: "POST",
+            headers: getAuthHeaders(),
             body: formData,
           });
 
