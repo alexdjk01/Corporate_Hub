@@ -8,6 +8,7 @@ from app.api.deps import get_db, get_current_user
 from app.models.db_models import Conversation, Message
 from app.models.user_models import User
 from app.schemas.chat import ChatRequest
+from app.services.rag_service import retrieve_relevant_chunks
 
 router = APIRouter()
 
@@ -73,17 +74,37 @@ def chat(
         .all()
     )
 
+    system_parts = [
+        "You are a concise assistant inside a corporate AI hub.",
+        "Use previous messages as context.",
+        "If the user asks a follow-up question, keep the current topic.",
+        "Answer briefly and clearly.",
+        "Use markdown bullets when useful.",
+        "Do not change topic unless the user clearly changes topic.",
+    ]
+
+    rag_sources = []
+
+    if req.use_rag:
+        retrieved = retrieve_relevant_chunks(req.message, user_id=current_user.id, top_k=6)
+        rag_context = retrieved["context"]
+        rag_sources = retrieved["sources"]
+
+        if rag_context.strip():
+            system_parts.append(
+                "The user has enabled knowledge-base mode. "
+                "Use the retrieved document context below when it is relevant."
+            )
+            system_parts.append(f"Retrieved document context:\n{rag_context}")
+        else:
+            system_parts.append(
+                "The user enabled knowledge-base mode, but no relevant document context was found."
+            )
+
     ollama_messages = [
         {
             "role": "system",
-            "content": (
-                "You are a concise assistant inside a corporate AI hub. "
-                "Use previous messages as context. "
-                "If the user asks a follow-up question, keep the current topic. "
-                "Answer briefly and clearly. "
-                "Use markdown bullets when useful. "
-                "Do not change topic unless the user clearly changes topic."
-            ),
+            "content": "\n\n".join(system_parts),
         }
     ]
 
@@ -124,6 +145,21 @@ def chat(
                         yield chunk
 
             assistant_text = full_response.strip() or "I could not generate a response."
+
+            if req.use_rag and rag_sources:
+                unique_files = []
+                seen = set()
+
+                for source in rag_sources:
+                    file_name = source.get("file_name")
+                    if file_name and file_name not in seen:
+                        seen.add(file_name)
+                        unique_files.append(file_name)
+
+                if unique_files:
+                    assistant_text += "\n\n**Sources:**\n"
+                    for file_name in unique_files:
+                        assistant_text += f"- {file_name}\n"
 
             assistant_message = Message(
                 conversation_id=conversation_id,

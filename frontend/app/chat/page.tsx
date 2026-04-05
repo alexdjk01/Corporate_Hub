@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { Mic, Square, Volume2 } from "lucide-react";
+import { Mic, Square, Volume2, Paperclip } from "lucide-react";
 
 type Message = {
   role: "user" | "assistant";
   content: string;
+  kind?: "normal" | "status" | "success" | "error";
 };
 
 type Conversation = {
@@ -23,15 +24,20 @@ export default function ChatPage() {
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
+  const [useRag, setUseRag] = useState(false);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [attachedFileName, setAttachedFileName] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const getAuthHeaders = (includeJson = false): HeadersInit => {
+  const getAuthHeaders = (includeJson = false): Record<string, string> => {
     const token = localStorage.getItem("token") || "";
+
     if (includeJson) {
       return {
         "Content-Type": "application/json",
@@ -55,6 +61,13 @@ export default function ChatPage() {
       textareaRef.current.scrollHeight,
       160
     )}px`;
+  };
+
+  const addAssistantMessage = (
+    content: string,
+    kind: "status" | "success" | "error" = "status"
+  ) => {
+    setMessages((prev) => [...prev, { role: "assistant", content, kind }]);
   };
 
   const loadConversations = async () => {
@@ -91,6 +104,7 @@ export default function ChatPage() {
           data.messages.map((msg: Message) => ({
             role: msg.role,
             content: msg.content,
+            kind: "normal",
           }))
         );
       }
@@ -113,6 +127,7 @@ export default function ChatPage() {
           data.messages.map((msg: Message) => ({
             role: msg.role,
             content: msg.content,
+            kind: "normal",
           }))
         );
       }
@@ -130,18 +145,21 @@ export default function ChatPage() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, loading, transcribing]);
+  }, [messages, loading, transcribing, uploadingDoc]);
 
   useEffect(() => {
     autoResizeTextarea();
   }, [input]);
 
   const sendMessage = async () => {
-    if (!input.trim() || loading || transcribing) return;
+    if (!input.trim() || loading || transcribing || uploadingDoc) return;
 
     const currentInput = input.trim();
 
-    setMessages((prev) => [...prev, { role: "user", content: currentInput }]);
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content: currentInput, kind: "normal" },
+    ]);
     setInput("");
     setLoading(true);
 
@@ -152,6 +170,7 @@ export default function ChatPage() {
         body: JSON.stringify({
           message: currentInput,
           conversation_id: conversationId,
+          use_rag: useRag,
         }),
       });
 
@@ -164,7 +183,10 @@ export default function ChatPage() {
         setConversationId(Number(newConversationId));
       }
 
-      setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "", kind: "normal" },
+      ]);
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -182,6 +204,7 @@ export default function ChatPage() {
           updated[updated.length - 1] = {
             role: "assistant",
             content: assistantText,
+            kind: "normal",
           };
           return updated;
         });
@@ -194,6 +217,7 @@ export default function ChatPage() {
         {
           role: "assistant",
           content: "Error: could not get response from backend.",
+          kind: "error",
         },
       ]);
     } finally {
@@ -262,6 +286,8 @@ export default function ChatPage() {
     setMessages([]);
     setConversationId(null);
     setInput("");
+    setUseRag(false);
+    setAttachedFileName(null);
     setTimeout(() => textareaRef.current?.focus(), 0);
   };
 
@@ -329,6 +355,68 @@ export default function ChatPage() {
     }
   };
 
+  const handleAttachClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileSelected = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const valid =
+      file.name.toLowerCase().endsWith(".txt") ||
+      file.name.toLowerCase().endsWith(".pdf");
+
+    if (!valid) {
+      alert("Only .txt and .pdf files are supported.");
+      e.target.value = "";
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    setUploadingDoc(true);
+    addAssistantMessage(
+      `Uploading and indexing document: ${file.name}...`,
+      "status"
+    );
+
+    try {
+      const res = await fetch("http://localhost:8000/rag/upload", {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || data.error) {
+        alert(data.error || "Could not attach file.");
+        addAssistantMessage(
+          `Failed to attach file${file.name ? `: ${file.name}` : "."}`,
+          "error"
+        );
+        return;
+      }
+
+      setUseRag(true);
+      setAttachedFileName(file.name);
+      addAssistantMessage("Document was reviewed successfully.", "success");
+    } catch {
+      alert("Could not attach file.");
+      addAssistantMessage(
+        `Failed to attach file${file.name ? `: ${file.name}` : "."}`,
+        "error"
+      );
+    } finally {
+      setUploadingDoc(false);
+      e.target.value = "";
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -339,6 +427,13 @@ export default function ChatPage() {
   return (
     <div className="flex h-[80vh] gap-4">
       <audio ref={audioRef} hidden />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".txt,.pdf"
+        className="hidden"
+        onChange={handleFileSelected}
+      />
 
       <div className="w-72 rounded-2xl border border-neutral-800 bg-neutral-950 p-4">
         <div className="mb-4 flex items-center justify-between">
@@ -390,41 +485,55 @@ export default function ChatPage() {
             </p>
           )}
 
-          {messages.map((msg, i) => (
-            <div
-              key={i}
-              className={`w-fit max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm ${
-                msg.role === "user"
-                  ? "ml-auto bg-blue-600 text-white"
-                  : "bg-neutral-800 text-neutral-100"
-              }`}
-            >
-              {msg.role === "user" ? (
-                <div className="whitespace-pre-wrap">{msg.content}</div>
-              ) : (
-                <div>
-                  <div className="mb-2 flex items-center gap-2">
-                    <button
-                      onClick={() => playTts(msg.content, i)}
-                      disabled={speakingIndex === i}
-                      className="rounded-lg bg-neutral-700 p-2 text-neutral-200 hover:bg-neutral-600 disabled:opacity-50"
-                      title="Read aloud"
-                    >
-                      <Volume2 size={16} />
-                    </button>
+          {messages.map((msg, i) => {
+            const isStatus = msg.kind === "status";
+            const isSuccess = msg.kind === "success";
+            const isError = msg.kind === "error";
 
-                    {speakingIndex === i && (
-                      <span className="text-xs text-neutral-400">Playing...</span>
-                    )}
-                  </div>
+            return (
+              <div
+                key={i}
+                className={`w-fit max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm ${
+                  msg.role === "user"
+                    ? "ml-auto bg-blue-600 text-white"
+                    : isSuccess
+                    ? "border border-green-600/40 bg-green-500/10 text-green-300"
+                    : isError
+                    ? "border border-red-600/40 bg-red-500/10 text-red-300"
+                    : isStatus
+                    ? "border border-blue-700/40 bg-blue-500/10 text-blue-200"
+                    : "bg-neutral-800 text-neutral-100"
+                }`}
+              >
+                {msg.role === "user" ? (
+                  <div className="whitespace-pre-wrap">{msg.content}</div>
+                ) : isStatus || isSuccess || isError ? (
+                  <div className="whitespace-pre-wrap">{msg.content}</div>
+                ) : (
+                  <div>
+                    <div className="mb-2 flex items-center gap-2">
+                      <button
+                        onClick={() => playTts(msg.content, i)}
+                        disabled={speakingIndex === i}
+                        className="rounded-lg bg-neutral-700 p-2 text-neutral-200 hover:bg-neutral-600 disabled:opacity-50"
+                        title="Read aloud"
+                      >
+                        <Volume2 size={16} />
+                      </button>
 
-                  <div className="prose prose-invert prose-sm max-w-none">
-                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      {speakingIndex === i && (
+                        <span className="text-xs text-neutral-400">Playing...</span>
+                      )}
+                    </div>
+
+                    <div className="prose prose-invert prose-sm max-w-none">
+                      <ReactMarkdown>{msg.content}</ReactMarkdown>
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-          ))}
+                )}
+              </div>
+            );
+          })}
 
           {loading && messages[messages.length - 1]?.role !== "assistant" && (
             <div className="w-fit rounded-2xl bg-neutral-800 px-4 py-3 text-sm text-neutral-300">
@@ -452,20 +561,31 @@ export default function ChatPage() {
             placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
           />
 
-          <button
-            onClick={handleMicClick}
-            disabled={loading || transcribing}
-            className={`flex items-center justify-center rounded-xl px-4 py-3 text-white disabled:opacity-50 ${
-              recording ? "bg-red-600" : "bg-neutral-800 hover:bg-neutral-700"
-            }`}
-            title={recording ? "Stop recording" : "Start recording"}
-          >
-            {recording ? <Square size={18} /> : <Mic size={18} />}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleAttachClick}
+              disabled={loading || transcribing || uploadingDoc}
+              className="flex items-center justify-center rounded-xl bg-neutral-800 px-4 py-3 text-white hover:bg-neutral-700 disabled:opacity-50"
+              title="Attach document for chat with documents"
+            >
+              <Paperclip size={18} />
+            </button>
+
+            <button
+              onClick={handleMicClick}
+              disabled={loading || transcribing || uploadingDoc}
+              className={`flex items-center justify-center rounded-xl px-4 py-3 text-white disabled:opacity-50 ${
+                recording ? "bg-red-600" : "bg-neutral-800 hover:bg-neutral-700"
+              }`}
+              title={recording ? "Stop recording" : "Start recording"}
+            >
+              {recording ? <Square size={18} /> : <Mic size={18} />}
+            </button>
+          </div>
 
           <button
             onClick={sendMessage}
-            disabled={loading || transcribing || !input.trim()}
+            disabled={loading || transcribing || uploadingDoc || !input.trim()}
             className="rounded-xl bg-blue-600 px-5 py-3 font-medium text-white disabled:opacity-50 hover:bg-blue-500"
           >
             {loading ? "..." : "Send"}

@@ -101,7 +101,7 @@ def index_document(file_path: str, original_name: str, user_id: int) -> dict:
     }
 
 
-def query_documents(question: str, user_id: int, top_k: int = 8) -> dict:
+def retrieve_relevant_chunks(question: str, user_id: int, top_k: int = 6) -> dict:
     query_embedding = get_embedding(question)
 
     results = collection.query(
@@ -124,7 +124,16 @@ def query_documents(question: str, user_id: int, top_k: int = 8) -> dict:
             "document_id": meta.get("document_id"),
         })
 
-    context = "\n\n---\n\n".join(context_parts)
+    return {
+        "context": "\n\n---\n\n".join(context_parts),
+        "sources": sources,
+    }
+
+
+def query_documents(question: str, user_id: int, top_k: int = 8) -> dict:
+    retrieved = retrieve_relevant_chunks(question, user_id=user_id, top_k=top_k)
+    context = retrieved["context"]
+    sources = retrieved["sources"]
 
     messages = [
         {
