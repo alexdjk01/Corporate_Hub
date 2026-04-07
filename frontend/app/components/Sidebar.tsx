@@ -9,6 +9,7 @@ const items = [
   { name: "Dashboard", href: "/dashboard" },
   { name: "Chat", href: "/chat" },
   { name: "Documents", href: "/documents" },
+  { name: "Images", href: "/images" },
   { name: "Voice", href: "/voice" },
   { name: "Settings", href: "/settings" },
 ];

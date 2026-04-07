@@ -1,14 +1,13 @@
 import requests
 
-OLLAMA_EMBED_URL = "http://localhost:11434/api/embed"
-EMBED_MODEL = "embeddinggemma"
+from app.core.config import OLLAMA_EMBED_URL, OLLAMA_EMBED_MODEL
 
 
 def get_embedding(text: str) -> list[float]:
     response = requests.post(
         OLLAMA_EMBED_URL,
         json={
-            "model": EMBED_MODEL,
+            "model": OLLAMA_EMBED_MODEL,
             "input": text,
         },
         timeout=120,
@@ -22,7 +21,7 @@ def get_embeddings(texts: list[str]) -> list[list[float]]:
     response = requests.post(
         OLLAMA_EMBED_URL,
         json={
-            "model": EMBED_MODEL,
+            "model": OLLAMA_EMBED_MODEL,
             "input": texts,
         },
         timeout=120,

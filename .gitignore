@@ -9,7 +9,9 @@ venv/
 .env
 .env.local
 
-backend/app/generated_audio/
+backend/generated_audio/
+backend/generated_images/
+backend/chroma_db/*
 backend/uploads/
 data/uploads/*
 data/outputs/*

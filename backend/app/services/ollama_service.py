@@ -1,15 +1,13 @@
 import requests
 
-
-OLLAMA_URL = "http://localhost:11434/api/chat"
-OLLAMA_MODEL = "gemma3:4b"
+from app.core.config import OLLAMA_CHAT_URL, OLLAMA_CHAT_MODEL
 
 
 def generate_chat_response(history: list[dict]) -> str:
     response = requests.post(
-        OLLAMA_URL,
+        OLLAMA_CHAT_URL,
         json={
-            "model": OLLAMA_MODEL,
+            "model": OLLAMA_CHAT_MODEL,
             "messages": history,
             "stream": False,
             "options": {
