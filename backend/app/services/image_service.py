@@ -12,40 +12,74 @@ def create_generated_image(
     prompt: str,
     negative_prompt: str = "",
     width: int = 1024,
-    height: int = 768,
+    height: int = 1024,
 ) -> GeneratedImage:
-    result = generate_image(
-        prompt=prompt,
-        negative_prompt=negative_prompt,
-        width=width,
-        height=height,
-    )
-
-    file_name, file_path = save_bytes_to_user_file(
-        base_dir=IMAGE_OUTPUT_DIR,
-        user_id=user_id,
-        content=result["bytes"],
-        extension=".png",
-    )
-
     image = GeneratedImage(
         user_id=user_id,
         prompt=prompt.strip(),
         negative_prompt=negative_prompt.strip() or None,
         image_type="ai",
-        file_name=file_name,
-        file_path=file_path,
-        width=result["width"],
-        height=result["height"],
-        seed=result["seed"],
-        model_name=result["model_name"],
-        status="completed",
+        file_name="pending.png",
+        file_path="",
+        width=width,
+        height=height,
+        seed=None,
+        model_name=None,
+        status="pending",
+        error_message=None,
     )
     db.add(image)
     db.commit()
     db.refresh(image)
 
-    return image
+    try:
+        result = generate_image(
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            width=width,
+            height=height,
+        )
+
+        file_name, file_path = save_bytes_to_user_file(
+            base_dir=IMAGE_OUTPUT_DIR,
+            user_id=user_id,
+            content=result["bytes"],
+            extension=".png",
+        )
+
+        image.file_name = file_name
+        image.file_path = file_path
+        image.width = result["width"]
+        image.height = result["height"]
+        image.seed = result["seed"]
+        image.model_name = result["model_name"]
+        image.status = "completed"
+        image.error_message = None
+
+        db.commit()
+        db.refresh(image)
+        return image
+
+    except Exception as e:
+        image.status = "failed"
+        image.error_message = str(e)
+        db.commit()
+        db.refresh(image)
+        raise
+
+
+def regenerate_generated_image(
+    db: Session,
+    image: GeneratedImage,
+) -> GeneratedImage:
+    return create_generated_image(
+        db=db,
+        user_id=image.user_id,
+        prompt=image.prompt,
+        negative_prompt=image.negative_prompt or "",
+        width=image.width,
+        height=image.height,
+    )
 
 
 def list_generated_images(db: Session, user_id: int) -> list[GeneratedImage]:

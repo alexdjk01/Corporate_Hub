@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { Mic, Square, Volume2, Paperclip } from "lucide-react";
+import { Mic, Square, Volume2, Paperclip, Download } from "lucide-react";
 
 type Message = {
   role: "user" | "assistant";
@@ -19,6 +19,7 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMode, setLoadingMode] = useState<"chat" | "image">("chat");
   const [conversationId, setConversationId] = useState<number | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [recording, setRecording] = useState(false);
@@ -27,6 +28,7 @@ export default function ChatPage() {
   const [useRag, setUseRag] = useState(false);
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [attachedFileName, setAttachedFileName] = useState<string | null>(null);
+  const [imageUrls, setImageUrls] = useState<Record<number, string>>({});
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -68,6 +70,87 @@ export default function ChatPage() {
     kind: "status" | "success" | "error" = "status"
   ) => {
     setMessages((prev) => [...prev, { role: "assistant", content, kind }]);
+  };
+
+  const isImageRequest = (text: string) => {
+    const value = text.trim().toLowerCase();
+
+    const triggers = [
+      "generate me an image",
+      "generate an image",
+      "create an image",
+      "make an image",
+      "give me an image",
+      "give me a picture",
+      "show me an image",
+      "show me a picture",
+      "generate a picture",
+      "create a picture",
+      "make a picture",
+      "generate image of",
+      "generate picture of",
+      "create image of",
+      "create picture of",
+    ];
+
+    return triggers.some((trigger) => value.includes(trigger));
+  };
+
+  const extractGeneratedImageId = (content: string): number | null => {
+    const match = content.match(/\[\[generated_image:(\d+)\]\]/);
+    return match ? Number(match[1]) : null;
+  };
+
+  const stripGeneratedImageMarker = (content: string): string => {
+    return content.replace(/\[\[generated_image:\d+\]\]/g, "").trim();
+  };
+
+  const loadImageBlobUrl = async (imageId: number) => {
+    if (imageUrls[imageId]) return;
+
+    try {
+      const res = await fetch(`http://localhost:8000/images/${imageId}/file`, {
+        headers: getAuthHeaders(),
+      });
+
+      if (!res.ok) return;
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+
+      setImageUrls((prev) => {
+        if (prev[imageId]) {
+          URL.revokeObjectURL(url);
+          return prev;
+        }
+        return { ...prev, [imageId]: url };
+      });
+    } catch {}
+  };
+
+  const downloadImage = async (imageId: number) => {
+    try {
+      const res = await fetch(`http://localhost:8000/images/${imageId}/file`, {
+        headers: getAuthHeaders(),
+      });
+
+      if (!res.ok) {
+        alert("Could not download image.");
+        return;
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `chat_image_${imageId}.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert("Could not download image.");
+    }
   };
 
   const loadConversations = async () => {
@@ -151,10 +234,27 @@ export default function ChatPage() {
     autoResizeTextarea();
   }, [input]);
 
+  useEffect(() => {
+    messages.forEach((msg) => {
+      if (msg.role !== "assistant") return;
+      const imageId = extractGeneratedImageId(msg.content);
+      if (imageId) {
+        loadImageBlobUrl(imageId);
+      }
+    });
+  }, [messages]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(imageUrls).forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [imageUrls]);
+
   const sendMessage = async () => {
     if (!input.trim() || loading || transcribing || uploadingDoc) return;
 
     const currentInput = input.trim();
+    const imageMode = isImageRequest(currentInput);
 
     setMessages((prev) => [
       ...prev,
@@ -162,6 +262,7 @@ export default function ChatPage() {
     ]);
     setInput("");
     setLoading(true);
+    setLoadingMode(imageMode ? "image" : "chat");
 
     try {
       const res = await fetch("http://localhost:8000/chat", {
@@ -222,6 +323,7 @@ export default function ChatPage() {
       ]);
     } finally {
       setLoading(false);
+      setLoadingMode("chat");
     }
   };
 
@@ -489,6 +591,12 @@ export default function ChatPage() {
             const isStatus = msg.kind === "status";
             const isSuccess = msg.kind === "success";
             const isError = msg.kind === "error";
+            const imageId =
+              msg.role === "assistant" ? extractGeneratedImageId(msg.content) : null;
+            const visibleContent =
+              msg.role === "assistant"
+                ? stripGeneratedImageMarker(msg.content)
+                : msg.content;
 
             return (
               <div
@@ -511,33 +619,62 @@ export default function ChatPage() {
                   <div className="whitespace-pre-wrap">{msg.content}</div>
                 ) : (
                   <div>
-                    <div className="mb-2 flex items-center gap-2">
-                      <button
-                        onClick={() => playTts(msg.content, i)}
-                        disabled={speakingIndex === i}
-                        className="rounded-lg bg-neutral-700 p-2 text-neutral-200 hover:bg-neutral-600 disabled:opacity-50"
-                        title="Read aloud"
-                      >
-                        <Volume2 size={16} />
-                      </button>
+                    {!imageId && (
+                      <div className="mb-2 flex items-center gap-2">
+                        <button
+                          onClick={() => playTts(visibleContent, i)}
+                          disabled={speakingIndex === i}
+                          className="rounded-lg bg-neutral-700 p-2 text-neutral-200 hover:bg-neutral-600 disabled:opacity-50"
+                          title="Read aloud"
+                        >
+                          <Volume2 size={16} />
+                        </button>
 
-                      {speakingIndex === i && (
-                        <span className="text-xs text-neutral-400">Playing...</span>
-                      )}
-                    </div>
+                        {speakingIndex === i && (
+                          <span className="text-xs text-neutral-400">Playing...</span>
+                        )}
+                      </div>
+                    )}
 
-                    <div className="prose prose-invert prose-sm max-w-none">
-                      <ReactMarkdown>{msg.content}</ReactMarkdown>
-                    </div>
+                    {visibleContent && (
+                      <div className="prose prose-invert prose-sm max-w-none">
+                        <ReactMarkdown>{visibleContent}</ReactMarkdown>
+                      </div>
+                    )}
+
+                    {imageId && (
+                      <div className="mt-3 space-y-3">
+                        {imageUrls[imageId] ? (
+                          <>
+                            <img
+                              src={imageUrls[imageId]}
+                              alt="Generated chat image"
+                              className="max-h-[420px] rounded-xl border border-neutral-700"
+                            />
+                            <button
+                              onClick={() => downloadImage(imageId)}
+                              className="inline-flex items-center gap-2 rounded-lg bg-neutral-700 px-3 py-2 text-sm text-white hover:bg-neutral-600"
+                            >
+                              <Download size={16} />
+                              Download image
+                            </button>
+                          </>
+                        ) : (
+                          <div className="text-sm text-neutral-400">
+                            Loading generated image...
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             );
           })}
 
-          {loading && messages[messages.length - 1]?.role !== "assistant" && (
+          {loading && (
             <div className="w-fit rounded-2xl bg-neutral-800 px-4 py-3 text-sm text-neutral-300">
-              AI is typing...
+              {loadingMode === "image" ? "Generating image..." : "AI is typing..."}
             </div>
           )}
 
@@ -548,6 +685,12 @@ export default function ChatPage() {
           )}
 
           <div ref={messagesEndRef} />
+        </div>
+
+        <div className="mb-2 text-xs text-neutral-500">
+          {attachedFileName && useRag
+            ? `Document mode enabled: ${attachedFileName}`
+            : "You can now generate images"}
         </div>
 
         <div className="flex items-end gap-2 rounded-2xl border border-neutral-800 bg-neutral-950 p-3">

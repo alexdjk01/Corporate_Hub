@@ -11,6 +11,7 @@ from app.services.image_service import (
     list_generated_images,
     get_generated_image,
     delete_generated_image,
+    regenerate_generated_image,
 )
 
 router = APIRouter()
@@ -21,7 +22,7 @@ def generate_user_image(
     prompt: str = Form(...),
     negative_prompt: str = Form(""),
     width: int = Form(1024),
-    height: int = Form(768),
+    height: int = Form(1024),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -46,6 +47,37 @@ def generate_user_image(
         "seed": image.seed,
         "model_name": image.model_name,
         "status": image.status,
+        "error_message": image.error_message,
+        "created_at": str(image.created_at),
+    }
+
+
+@router.post("/images/{image_id}/regenerate")
+def regenerate_user_image(
+    image_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    original_image = get_generated_image(db=db, image_id=image_id, user_id=current_user.id)
+
+    if not original_image:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    try:
+        image = regenerate_generated_image(db=db, image=original_image)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {
+        "id": image.id,
+        "prompt": image.prompt,
+        "image_type": image.image_type,
+        "width": image.width,
+        "height": image.height,
+        "seed": image.seed,
+        "model_name": image.model_name,
+        "status": image.status,
+        "error_message": image.error_message,
         "created_at": str(image.created_at),
     }
 
@@ -67,6 +99,7 @@ def get_user_images(
             "seed": image.seed,
             "model_name": image.model_name,
             "status": image.status,
+            "error_message": image.error_message,
             "created_at": str(image.created_at),
         }
         for image in images
@@ -84,7 +117,10 @@ def get_user_image_file(
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
 
-    if not os.path.exists(image.file_path):
+    if image.status != "completed":
+        raise HTTPException(status_code=400, detail="Image is not completed yet")
+
+    if not image.file_path or not os.path.exists(image.file_path):
         raise HTTPException(status_code=404, detail="Image file not found")
 
     return FileResponse(
