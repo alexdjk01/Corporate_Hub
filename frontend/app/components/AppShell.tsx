@@ -39,7 +39,7 @@ export default function AppShell({
 
   if (!mounted) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-neutral-950 text-white">
+      <div className="flex min-h-screen items-center justify-center bg-[#0b1220] text-white">
         Loading...
       </div>
     );
@@ -47,7 +47,7 @@ export default function AppShell({
 
   if (!token && !isLoginPage) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-neutral-950 text-white">
+      <div className="flex min-h-screen items-center justify-center bg-[#0b1220] text-white">
         Redirecting to login...
       </div>
     );
@@ -55,7 +55,7 @@ export default function AppShell({
 
   if (token && isLoginPage) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-neutral-950 text-white">
+      <div className="flex min-h-screen items-center justify-center bg-[#0b1220] text-white">
         Redirecting...
       </div>
     );
@@ -66,9 +66,9 @@ export default function AppShell({
   }
 
   return (
-    <div className="flex min-h-screen bg-neutral-950 text-white">
+    <div className="flex min-h-screen bg-[#0b1220] text-slate-100">
       <Sidebar />
-      <main className="flex-1 p-8">{children}</main>
+      <main className="flex-1 overflow-hidden">{children}</main>
     </div>
   );
 }
