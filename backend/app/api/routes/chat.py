@@ -135,18 +135,25 @@ def chat(
     image_request = is_image_generation_request(req.message)
 
     system_parts = [
+     "You are an intelligent assistant inside a corporate AI hub.",
+        "Use previous messages as context and maintain continuity inside the conversation.",
         "You are a concise assistant inside a corporate AI hub.",
-        "Use previous messages as context.",
         "If the user asks a follow-up question, keep the current topic.",
         "Answer briefly and clearly.",
-        "Use markdown bullets when useful.",
         "Do not change topic unless the user clearly changes topic.",
+        "Answer in maximum 200 words.",
     ]
 
     rag_sources = []
 
     if req.use_rag and not image_request:
-        retrieved = retrieve_relevant_chunks(req.message, user_id=current_user.id, top_k=6)
+        retrieved = retrieve_relevant_chunks(
+            question=req.message,
+            user_id=current_user.id,
+            scope="conversation",
+            conversation_id=conversation_id,
+            top_k=6,
+        )
         rag_context = retrieved["context"]
         rag_sources = retrieved["sources"]
 
@@ -231,18 +238,28 @@ def chat(
                     "model": OLLAMA_CHAT_MODEL,
                     "messages": ollama_messages,
                     "stream": True,
-                    "options": {"temperature": 0.2},
+                    "options": {
+                        "temperature": 0.3,
+                        "num_predict": 1400,
+                    },
                 },
                 stream=True,
-                timeout=120,
+                timeout=(10, 700),
             ) as response:
                 response.raise_for_status()
 
-                for line in response.iter_lines():
+                for line in response.iter_lines(decode_unicode=True):
                     if not line:
                         continue
 
-                    data = json.loads(line.decode("utf-8"))
+                    try:
+                        data = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+
+                    if data.get("done") is True:
+                        break
+
                     chunk = data.get("message", {}).get("content", "")
 
                     if chunk:

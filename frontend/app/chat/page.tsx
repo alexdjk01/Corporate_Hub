@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
-import { Mic, Square, Volume2, Paperclip, Send } from "lucide-react";
+import { Mic, Square, Volume2, Paperclip, Send, Download  } from "lucide-react";
 
 type Message = {
   role: "user" | "assistant";
@@ -26,6 +26,8 @@ export default function ChatPage() {
   const [useRag, setUseRag] = useState(false);
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [attachedFileName, setAttachedFileName] = useState<string | null>(null);
+
+  const [imageUrls, setImageUrls] = useState<Record<number, string>>({});
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -144,6 +146,67 @@ export default function ChatPage() {
   useEffect(() => {
     autoResizeTextarea();
   }, [input]);
+
+  useEffect(() => {
+  messages.forEach((msg) => {
+    if (msg.role !== "assistant") return;
+
+    const imageId = extractGeneratedImageId(msg.content);
+    if (imageId) {
+      loadImageBlobUrl(imageId);
+    }
+  });
+  }, [messages]);
+
+  const extractGeneratedImageId = (content: string): number | null => {
+  const match = content.match(/\[\[generated_image:(\d+)\]\]/);
+  return match ? Number(match[1]) : null;
+};
+
+const stripGeneratedImageMarker = (content: string): string => {
+  return content.replace(/\[\[generated_image:\d+\]\]/g, "").trim();
+};
+
+const loadImageBlobUrl = async (imageId: number) => {
+  if (imageUrls[imageId]) return;
+
+  try {
+    const res = await fetch(`http://localhost:8000/images/${imageId}/file`, {
+      headers: getAuthHeaders(),
+    });
+
+    if (!res.ok) return;
+
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+
+    setImageUrls((prev) => ({
+      ...prev,
+      [imageId]: url,
+    }));
+  } catch {}
+};
+
+const downloadImage = async (imageId: number) => {
+  const res = await fetch(`http://localhost:8000/images/${imageId}/file`, {
+    headers: getAuthHeaders(),
+  });
+
+  if (!res.ok) {
+    alert("Could not download image.");
+    return;
+  }
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `chat_image_${imageId}.png`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  };
 
   const sendMessage = async () => {
     if (!input.trim() || loading || transcribing || uploadingDoc) return;
@@ -367,6 +430,11 @@ export default function ChatPage() {
 
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("scope", "conversation");
+
+    if (conversationId !== null) {
+      formData.append("conversation_id", String(conversationId));
+    }
 
     setUploadingDoc(true);
     addAssistantMessage(`Uploading and indexing document: ${file.name}...`, "status");
@@ -379,6 +447,9 @@ export default function ChatPage() {
       });
 
       const data = await res.json();
+      if (data.conversation_id) {
+        setConversationId(Number(data.conversation_id));
+      }
 
       if (!res.ok || data.error) {
         alert(data.error || "Could not attach file.");
@@ -531,14 +602,51 @@ export default function ChatPage() {
                               : "text-slate-100"
                           }`}
                         >
-                          <div className="prose prose-invert prose-sm max-w-none prose-p:text-slate-100 prose-li:text-slate-100 prose-strong:text-white">
-                            <ReactMarkdown>{msg.content}</ReactMarkdown>
-                          </div>
+                          {(() => {
+                                      const imageId = extractGeneratedImageId(msg.content);
+                                      const visibleContent = stripGeneratedImageMarker(msg.content);
+
+                                      return (
+                                        <>
+                                          {visibleContent && (
+                                            <div className="prose prose-invert prose-sm max-w-none prose-p:text-slate-100 prose-li:text-slate-100 prose-strong:text-white">
+                                              <ReactMarkdown>{visibleContent}</ReactMarkdown>
+                                            </div>
+                                          )}
+
+                                          {imageId && (
+                                            <div className="mt-4 space-y-3">
+                                              {imageUrls[imageId] ? (
+                                                <>
+                                                  <img
+                                                    src={imageUrls[imageId]}
+                                                    alt="Generated image"
+                                                    className="max-h-[420px] rounded-2xl border border-blue-900/60"
+                                                  />
+
+                                                  <button
+                                                    onClick={() => downloadImage(imageId)}
+                                                    className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-500"
+                                                  >
+                                                    <Download size={15} />
+                                                    Download image
+                                                  </button>
+                                                </>
+                                              ) : (
+                                                <p className="text-sm text-blue-200/60">
+                                                  Loading generated image...
+                                                </p>
+                                              )}
+                                            </div>
+                                          )}
+                                        </>
+                                      );
+                                    })()}
 
                           {!isStatus && !isSuccess && !isError && msg.content.trim() && (
                             <div className="mt-3 flex items-center gap-2">
                               <button
-                                onClick={() => playTts(msg.content, i)}
+                                onClick={() => playTts(stripGeneratedImageMarker(msg.content), i)}
                                 disabled={speakingIndex === i}
                                 className="rounded-lg p-2 text-blue-200/70 hover:bg-blue-950/60 disabled:opacity-50"
                                 title="Read aloud"

@@ -230,18 +230,13 @@ export default function Sidebar() {
 
       <button
         onClick={newChat}
-        className="mb-2 flex items-center gap-3 rounded-xl px-3 py-3 text-sm text-blue-50 hover:bg-blue-950/60"
+        className="mb-1 flex items-center gap-3 rounded-xl px-3 py-3 text-sm text-blue-50 hover:bg-blue-950/60"
       >
         <Plus size={18} />
         New chat
       </button>
 
-      <button className="mb-4 flex items-center gap-3 rounded-xl px-3 py-3 text-sm text-blue-100/80 hover:bg-blue-950/60">
-        <Search size={18} />
-        Search
-      </button>
-
-      <nav className="space-y-1 border-b border-blue-950/60 pb-4">
+      <nav className="space-y-1 border-b border-blue-950/60 pb-3 flex-shrink-0">
         {topItems.map((item) => {
           const Icon = item.icon;
           const active = pathname === item.href;
@@ -250,7 +245,7 @@ export default function Sidebar() {
             <Link
               key={item.name}
               href={item.href}
-              className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm transition ${
+              className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition ${
                 active
                   ? "bg-blue-900/70 text-white"
                   : "text-blue-100/80 hover:bg-blue-950/60 hover:text-white"
@@ -263,7 +258,7 @@ export default function Sidebar() {
         })}
       </nav>
 
-      <div className="mt-4 flex-1 overflow-y-auto">
+      <div className="mt-2 flex-[4] overflow-y-auto hide-scrollbar">
         <p className="mb-2 px-3 text-xs font-medium uppercase tracking-wide text-blue-300/60">
           Chats
         </p>

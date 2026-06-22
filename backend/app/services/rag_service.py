@@ -63,7 +63,13 @@ def extract_text_from_file(file_path: str) -> str:
     raise ValueError("Unsupported file type")
 
 
-def index_document(file_path: str, original_name: str, user_id: int) -> dict:
+def index_document(
+    file_path: str,
+    original_name: str,
+    user_id: int,
+    scope: str,
+    conversation_id: int,
+) -> dict:
     text = extract_text_from_file(file_path)
     chunks = splitter.split_text(text)
 
@@ -85,6 +91,8 @@ def index_document(file_path: str, original_name: str, user_id: int) -> dict:
             "file_name": original_name,
             "chunk_index": i,
             "user_id": user_id,
+            "scope": scope,
+            "conversation_id": conversation_id,
         })
 
     collection.add(
@@ -100,14 +108,25 @@ def index_document(file_path: str, original_name: str, user_id: int) -> dict:
         "chunks_indexed": len(chunks),
     }
 
-
-def retrieve_relevant_chunks(question: str, user_id: int, top_k: int = 6) -> dict:
+def retrieve_relevant_chunks(
+    question: str,
+    user_id: int,
+    scope: str,
+    conversation_id: int,
+    top_k: int = 6,
+) -> dict:
     query_embedding = get_embedding(question)
 
     results = collection.query(
         query_embeddings=[query_embedding],
         n_results=top_k,
-        where={"user_id": user_id},
+        where={
+            "$and": [
+                {"user_id": user_id},
+                {"scope": scope},
+                {"conversation_id": conversation_id},
+            ]
+        },
     )
 
     documents = results.get("documents", [[]])[0]
@@ -122,6 +141,8 @@ def retrieve_relevant_chunks(question: str, user_id: int, top_k: int = 6) -> dic
             "file_name": meta.get("file_name"),
             "chunk_index": meta.get("chunk_index"),
             "document_id": meta.get("document_id"),
+            "scope": meta.get("scope"),
+            "conversation_id": meta.get("conversation_id"),
         })
 
     return {
@@ -129,21 +150,37 @@ def retrieve_relevant_chunks(question: str, user_id: int, top_k: int = 6) -> dic
         "sources": sources,
     }
 
+def query_documents(
+    question: str,
+    user_id: int,
+    scope: str,
+    conversation_id: int,
+    top_k: int = 8,
+) -> dict:
+    retrieved = retrieve_relevant_chunks(
+        question=question,
+        user_id=user_id,
+        scope=scope,
+        conversation_id=conversation_id,
+        top_k=top_k,
+    )
 
-def query_documents(question: str, user_id: int, top_k: int = 8) -> dict:
-    retrieved = retrieve_relevant_chunks(question, user_id=user_id, top_k=top_k)
     context = retrieved["context"]
     sources = retrieved["sources"]
+
+    if not context.strip() or not sources:
+        return {
+            "answer": "I could not find relevant information in the selected documents.",
+            "sources": [],
+        }
 
     messages = [
         {
             "role": "system",
             "content": (
-                "You answer questions using the provided context. "
-                "Be concise and structured. "
-                "If the question is broad, summarize the overall topic of the retrieved content. "
-                "If the exact answer is not explicit but the retrieved context is clearly relevant, answer based on it. "
-                "Only say you could not find it if the retrieved context is clearly unrelated."
+                "You answer questions only using the provided document context. "
+                "If the answer is not present in the context, say that the answer "
+                "could not be found in the selected documents. Do not invent sources."
             ),
         },
         {
@@ -172,24 +209,54 @@ def query_documents(question: str, user_id: int, top_k: int = 8) -> dict:
         "sources": sources,
     }
 
+def list_documents(
+    user_id: int,
+    scope: str,
+    conversation_id: int,
+) -> list[dict]:
+    data = collection.get(
+        where={
+            "$and": [
+                {"user_id": user_id},
+                {"scope": scope},
+                {"conversation_id": conversation_id},
+            ]
+        },
+        include=["metadatas"],
+    )
 
-def list_documents(user_id: int) -> list[dict]:
-    data = collection.get(where={"user_id": user_id}, include=["metadatas"])
     seen = {}
 
     for meta in data.get("metadatas", []):
         doc_id = meta["document_id"]
+
         if doc_id not in seen:
             seen[doc_id] = {
                 "document_id": doc_id,
                 "file_name": meta["file_name"],
+                "scope": meta.get("scope"),
+                "conversation_id": meta.get("conversation_id"),
             }
 
     return list(seen.values())
 
+def delete_document(
+    document_id: str,
+    user_id: int,
+    scope: str,
+    conversation_id: int,
+) -> None:
+    data = collection.get(
+        where={
+            "$and": [
+                {"user_id": user_id},
+                {"scope": scope},
+                {"conversation_id": conversation_id},
+            ]
+        },
+        include=["metadatas"],
+    )
 
-def delete_document(document_id: str, user_id: int) -> None:
-    data = collection.get(where={"user_id": user_id}, include=["metadatas"])
     ids_to_delete = []
 
     for item_id, meta in zip(data.get("ids", []), data.get("metadatas", [])):

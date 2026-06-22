@@ -2,12 +2,15 @@ import random
 import time
 import uuid
 import requests
-
+from app.services.prompt_filter import validate_image_prompt
 from app.core.config import COMFYUI_BASE_URL, COMFYUI_CHECKPOINT
 
 DEFAULT_NEGATIVE_PROMPT = (
-    "blurry, low quality, low resolution, distorted, bad anatomy, "
-    "extra fingers, cropped, watermark, text"
+    "low quality, low resolution, blurry, pixelated, jpeg artifacts, "
+    "distorted, deformed, ugly, bad composition, bad perspective, "
+    "bad anatomy, extra fingers, missing fingers, malformed hands, "
+    "watermark, logo, signature, random text, unreadable text, cropped,"
+    "prompt not analyzed, prompt not understood" 
 )
 
 
@@ -171,19 +174,33 @@ def download_image_bytes(filename: str, subfolder: str, folder_type: str) -> byt
     response.raise_for_status()
     return response.content
 
+def enhance_prompt(prompt: str) -> str:
+    clean_prompt = (prompt or "").strip()
+
+    quality_suffix = (
+        "good quality, clean composition, sharp details, "
+        "presentation style, high quality, balanced lighting"
+    )
+
+    if not clean_prompt:
+        return quality_suffix
+
+    return f"{clean_prompt}, {quality_suffix}"
+
 def generate_image(
     prompt: str,
     negative_prompt: str | None = None,
     width: int = 1024,
     height: int = 1024,
-    steps: int = 30,
-    cfg: float = 7.0,
+    steps: int = 40,
+    cfg: float = 6.5,
     seed: int | None = None,
  ) -> dict:
     prompt = (prompt or "").strip()
     if not prompt:
         raise ValueError("Prompt is required")
-
+    validate_image_prompt(prompt, negative_prompt or "")
+    prompt = enhance_prompt(prompt)
     negative_prompt = (negative_prompt or "").strip() or DEFAULT_NEGATIVE_PROMPT
     width = _normalize_dimension(width)
     height = _normalize_dimension(height)

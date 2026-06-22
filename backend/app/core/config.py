@@ -19,7 +19,10 @@ COMFYUI_BASE_URL = os.getenv("COMFYUI_BASE_URL", "http://localhost:8188")
 COMFYUI_CHECKPOINT = os.getenv(
     "COMFYUI_CHECKPOINT",
    # "v1-5-pruned-emaonly-fp16.safetensors"
-    "sd_xl_base_1.0.safetensors"
+    # "sd_xl_base_1.0.safetensors"
+    "juggernautXL_ragnarok.safetensors"
+    # "Flux1-Dev-SRPO-v1-fp8.safetensors"
+    # "juggernautXL_versionXInpaint.safetensors"
 )
 
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
